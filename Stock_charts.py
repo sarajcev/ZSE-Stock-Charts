@@ -120,13 +120,21 @@ sma200 = quotes['Zadnja'].rolling(window=200).mean()
 
 # In[12]:
 
+# Disparity index
+# The disparity index (or disparity ratio), compares, as a percentage, 
+# the latest close price to a chosen moving average. SMA (20) is used.
+disparity = ((sma20-quotes['Zadnja'])/sma20)*100.
+
+
+# In[13]:
+
 # Exponential Moving Averages
 ema20 = quotes['Zadnja'].ewm(span=20).mean()
 ema50 = quotes['Zadnja'].ewm(span=50).mean()
 ema200 = quotes['Zadnja'].ewm(span=200).mean()
 
 
-# In[13]:
+# In[14]:
 
 # Bollinger bands
 #http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:bollinger_bands
@@ -136,14 +144,14 @@ lowr = ma20 - 2*sd20
 uppr = ma20 + 2*sd20
 
 
-# In[14]:
+# In[15]:
 
 # Bollinger BandWidth (20)
 bb_width = ((uppr - lowr)/ma20)*100.
 bb_width_ma200 = bb_width.rolling(window=200).mean()
 
 
-# In[15]:
+# In[16]:
 
 # MACD indicator - MACD(12,26,9)
 #http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:
@@ -155,7 +163,7 @@ signal_line = macd_line.ewm(span=9).mean()
 macd_hist = macd_line - signal_line
 
 
-# In[16]:
+# In[17]:
 
 # Percentage Price Oscillator - PPO(12,26,9)
 #http://stockcharts.com/school/doku.php?id=chart_school:
@@ -165,9 +173,9 @@ ppo_signal_line = ppo_line.ewm(span=9).mean()
 ppo_hist = ppo_line - ppo_signal_line
 
 
-# In[17]:
+# In[18]:
 
-# Percentage Volume Oscillator
+# Percentage Volume Oscillator - PVO(12,26,9)
 # http://stockcharts.com/school/doku.php?id=chart_school:
 #technical_indicators:percentage_volume_oscillator_pvo
 vol_ema12 = quotes[u'Količina'].ewm(span=12).mean()
@@ -177,7 +185,19 @@ pvo_signal_line = pvo_line.ewm(span=9).mean()
 pvo_hist = pvo_line - pvo_signal_line
 
 
-# In[18]:
+# In[19]:
+
+# Stochastic Oscillator (20,5,5)
+# http://stockcharts.com/school/doku.php?id=chart_school:
+#technical_indicators:stochastic_oscillator_fast_slow_and_full
+lowest_low = quotes[u'Najniža'].rolling(window=20).min()
+highest_high = quotes[u'Najviša'].rolling(window=20).max()
+osc_line = ((quotes['Zadnja'] - lowest_low)/(highest_high - lowest_low))*100.
+osc_line = osc_line.rolling(window=5).mean()  # SMA(5)
+osc_signal = osc_line.rolling(window=5).mean()  # SMA(5)
+
+
+# In[20]:
 
 # Relative strength index (RSI)
 # From: http://matplotlib.org/examples/pylab_examples/finance_work2.html
@@ -209,14 +229,14 @@ def relative_strength(prices, n=14):
     return rsi
 
 
-# In[19]:
+# In[21]:
 
 # Compute RSI (14 days)
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:relative_strength_index_rsi
 rsi = relative_strength(quotes['Zadnja'])
 
 
-# In[20]:
+# In[22]:
 
 # Candlesticks (data preparation)
 tindex = quotes.index.values
@@ -229,7 +249,7 @@ ohlc = quotes[['Prva', u'Najviša', u'Najniža', 'Zadnja']].values
 qdata = np.c_[mtime, ohlc]
 
 
-# In[21]:
+# In[23]:
 
 # Daily VaR and CVaR from historical time window at 95% confidence
 returns = quotes['log_returns'].ix[date_start:date_end].dropna()
@@ -239,7 +259,7 @@ CVaR = np.mean(returns[ind])
 print('VaR = {:.2f} %, CVaR = {:.2f} %'.format(VaR, CVaR))
 
 
-# In[22]:
+# In[24]:
 
 # Mean and standard deviation of the simple log returns
 mu_logret = returns.mean()
@@ -248,7 +268,7 @@ print('Mean return: {:.2f} %'.format(mu_logret))
 print('St.dev. return: {:.2f}'.format(sd_logret))
 
 
-# In[23]:
+# In[25]:
 
 # Volume-by-Price indicator
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:volume_by_price
@@ -267,7 +287,7 @@ for i in range(len(zones)-1):
 vol_by_price = np.asarray(vol_by_price)*1e-6  # Milions (kn)
 
 
-# In[24]:
+# In[26]:
 
 # Ichimoku Cloud plot
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:ichimoku_cloud
@@ -292,7 +312,7 @@ leading_span_B = ((high52 + low52)/2.).shift(26)
 lagging_span = quotes['Zadnja'].shift(-26)
 
 
-# In[25]:
+# In[27]:
 
 # Round number to the nearest base
 def myround(x, base=5):
@@ -301,7 +321,7 @@ def myround(x, base=5):
 
 # ## Plot Variant A
 
-# In[27]:
+# In[29]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=1, height_ratios=[1,3,1])
@@ -320,8 +340,8 @@ axt.plot(quotes.index, rsi, color='darkorange', label='Relative strength index -
 axt.axhline(70, color='grey')
 axt.axhline(50, color='grey', ls='--')
 axt.axhline(30, color='grey')
-axt.fill_between(quotes.index, rsi, 70, where=(rsi >= 70), color='darkorange')
-axt.fill_between(quotes.index, rsi, 30, where=(rsi <= 30), color='darkorange')
+axt.fill_between(quotes.index, rsi, 70, where=(rsi >= 70), interpolate=True, color='darkorange', alpha=0.8)
+axt.fill_between(quotes.index, rsi, 30, where=(rsi <= 30), interpolate=True, color='darkorange', alpha=0.8)
 axt.text(0.6, 0.9, '>70 = overbought', va='top', transform=axt.transAxes, fontsize=12)
 axt.text(0.6, 0.1, '<30 = oversold', transform=axt.transAxes, fontsize=12)
 axt.set_ylim(0, 100)
@@ -391,7 +411,7 @@ plt.show()
 
 # ## Plot Variant B
 
-# In[27]:
+# In[32]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=2, height_ratios=[1,2,1], width_ratios=[5,1])
@@ -405,17 +425,20 @@ axh = fig.add_subplot(gx[1,1])
 axv = fig.add_subplot(gx[2,1])
 # Top figure (left)
 axt.set_title(stock_name)
-axt.plot(quotes.index, rsi, color='darkorange', label='Relative strength index - RSI (14)')
-axt.axhline(70, color='grey')
+axt.plot(quotes.index, osc_line, color='darkorange', lw=2, label='Stochastic Oscillator (20,5,5)')
+axt.plot(quotes.index, osc_signal, color='seagreen', lw=1.5, label='Signal line')
+axt.axhline(80, color='grey')
 axt.axhline(50, color='grey', ls='--')
-axt.axhline(30, color='grey')
-axt.fill_between(quotes.index, rsi, 70, where=(rsi >= 70), color='darkorange')
-axt.fill_between(quotes.index, rsi, 30, where=(rsi <= 30), color='darkorange')
-axt.text(0.6, 0.9, '>70 = overbought', va='top', transform=axt.transAxes, fontsize=12)
-axt.text(0.6, 0.1, '<30 = oversold', transform=axt.transAxes, fontsize=12)
-axt.set_ylim(0, 100)
-axt.set_yticks([30, 70])
-axt.legend(loc='lower left')
+axt.axhline(20, color='grey')
+axt.fill_between(quotes.index, osc_line, 80, where=(osc_line >= 80), 
+                 interpolate=True, color='darkorange', alpha=0.8)
+axt.fill_between(quotes.index, osc_line, 20, where=(osc_line <= 20), 
+                 interpolate=True, color='darkorange', alpha=0.8)
+axt.text(0.6, 0.9, '>80 = overbought', va='top', transform=axt.transAxes, fontsize=12)
+axt.text(0.6, 0.1, '<20 = oversold', transform=axt.transAxes, fontsize=12)
+#axt.set_ylim(0, 100)
+axt.set_yticks([20, 80])
+axt.legend(loc='lower left', frameon='fancy', fancybox=True, framealpha=0.5)
 # Middle figure left
 # Volume (mountain plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
@@ -505,7 +528,7 @@ plt.show()
 
 # ## Plot Variant C
 
-# In[28]:
+# In[35]:
 
 sns.set(context='notebook', style='whitegrid', font_scale=1.2)  # Change of style
 fig = plt.figure(figsize=(12,8.5))
@@ -531,12 +554,12 @@ ax0.yaxis.tick_right()
 ax1.yaxis.tick_right()
 # Top figure
 axt.set_title(stock_name)
-axt.plot(quotes.index, rsi, color='darkorange', label='Relative strength index - RSI (14)')
+axt.plot(quotes.index, rsi, ls='-', lw=2, color='darkorange', label='Relative strength index - RSI (14)')
 axt.axhline(70, color='grey')
 axt.axhline(50, color='grey', ls='--')
 axt.axhline(30, color='grey')
-axt.fill_between(quotes.index, rsi, 70, where=(rsi >= 70), color='darkorange')
-axt.fill_between(quotes.index, rsi, 30, where=(rsi <= 30), color='darkorange')
+axt.fill_between(quotes.index, rsi, 70, where=(rsi >= 70), interpolate=True, color='darkorange', alpha=0.8)
+axt.fill_between(quotes.index, rsi, 30, where=(rsi <= 30), interpolate=True, color='darkorange', alpha=0.8)
 axt.text(0.6, 0.9, '>70 = overbought', va='top', transform=axt.transAxes, fontsize=12)
 axt.text(0.6, 0.1, '<30 = oversold', transform=axt.transAxes, fontsize=12)
 axt.set_ylim(0, 100)
@@ -616,7 +639,7 @@ plt.show()
 
 # ## Plot Variant D
 
-# In[29]:
+# In[36]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=1, height_ratios=[1,3,1])
