@@ -27,34 +27,41 @@ import datetime as dt
 
 # In[3]:
 
+import string
+import urllib2
+import bs4  # BeautifulSoup
+import re  # regex
+
+
+# In[4]:
+
 from matplotlib.finance import candlestick_ohlc
 from matplotlib.dates import DateFormatter
 from scipy import stats
 
 
-# In[4]:
+# In[5]:
 
 sns.set(context='notebook', style='darkgrid', font_scale=1.2)
 
 
-# In[5]:
+# In[6]:
 
 get_ipython().magic(u'matplotlib inline')
 
 
-# In[6]:
+# In[7]:
 
 # Povijesni podaci sa Zagrebačke burze (www.zse.hr)
 # Historical stock data from the Zagreb Stock Exchange (www.zse.hr)
 # Ticker: you need at least 200 days of trading data (2 years)
 #stock_name = 'HT-R-A'
 stock_name = 'ADPL-R-A'
-quotes = pd.read_excel('zse_export_'+stock_name+'.xlsx') #, index_col='Datum')
+quotes = pd.read_excel('zse_export_'+stock_name+'.xlsx')
 quotes = quotes.set_index(pd.DatetimeIndex(quotes['Datum']))
-quotes = quotes.ffill()
 
 
-# In[7]:
+# In[8]:
 
 # Cleaning data
 del quotes['Datum']
@@ -64,15 +71,114 @@ del quotes['Broj transakcija']
 quotes = quotes.iloc[::-1]
 
 
-# In[8]:
+# In[9]:
+
+# Add the latest data directly from the website (only last month of trading data)
+# Web Scraping ZSE website for stock data
+address = 'http://zse.hr/default.aspx?id=10006&dionica='+stock_name  # ADPL-R-A
+page = urllib2.urlopen(address)
+soup = bs4.BeautifulSoup(page, 'lxml')
+
+
+# In[10]:
+
+# Extract table from web page
+table = soup.find('table', class_='standard-table sorttable')
+# Extract all rows from the table
+rows = table.findAll('tr')
+data = []; sdata = []
+for row in rows[1:]:
+    # Extract cells from each row
+    cells = row.findAll('td')
+    for elem in cells:
+        # Extract text strings from cells
+        data.append(elem.find(text=True))
+clean_data = []
+for s in data:
+    # Remove non-printing characters from strings
+    clean_data.append(re.sub('[^\040-\176]', '', s))
+
+
+# In[11]:
+
+# Convert strings with commas to decimal numbers
+def replace_convert(s):
+    r = re.sub('[^0-9|,|-]', '', s)
+    if r:
+        r = float(r.replace(',', '.'))
+    else:
+        r = 0.
+    return r
+
+
+# In[12]:
+
+datum = []
+prva = []
+najvisa = []
+najniza = []
+zadnja = []
+prosjecna = []
+promjena = []
+broj_tr = []
+kolicina = []
+promet = []
+for i in range(0, len(clean_data), 11):
+    datum.append(clean_data[i+1])
+    prva.append(replace_convert(clean_data[i+2]))
+    najvisa.append(replace_convert(clean_data[i+3]))
+    najniza.append(replace_convert(clean_data[i+4]))
+    zadnja.append(replace_convert(clean_data[i+5]))
+    prosjecna.append(replace_convert(clean_data[i+6]))
+    promjena.append(replace_convert(clean_data[i+7]))
+    broj_tr.append(replace_convert(clean_data[i+8]))
+    kolicina.append(replace_convert(clean_data[i+9]))
+    promet.append(replace_convert(clean_data[i+10]))
+
+
+# In[13]:
+
+column_names = ['Prva', 'Zadnja', u'Najviša', u'Najniža', u'Prosječna', 
+                'Promjena', u'Količina', 'Promet']
+
+
+# In[14]:
+
+podaci = pd.DataFrame(data={'Prva':prva, u'Najviša':najvisa, u'Najniža':najniza,
+                            'Zadnja':zadnja, u'Prosječna':prosjecna, 'Promjena':promjena, 
+                            u'Količina':kolicina, 'Promet':promet},
+                      index=pd.to_datetime(datum, dayfirst=True), columns=column_names)
+
+
+# In[15]:
+
+podaci = podaci.iloc[::-1]  # reverse order
+
+
+# In[16]:
+
+# Adding new rows to the existing DataFrame
+data_all = pd.concat([quotes, podaci])
+# Remove duplicate dates
+data_all = data_all.drop_duplicates(keep='last')
+quotes = data_all.copy()
+quotes.tail()
+
+
+# In[17]:
+
+# Time window for the analysis (should be consistent with the provided data)
+date_start = dt.date(2016, 9, 1)
+#date_end = dt.date(2017, 3, 31)
+# If last day use this
+dateend = quotes.tail(1).index
+date_end = dateend.to_pydatetime()[0]
+
+
+# In[18]:
 
 # Simple log returns (%) of Close price
 quotes['log_returns'] = np.log(quotes['Zadnja']).diff()*100
-
-
-# In[9]:
-
-quotes.head()
 
 
 # In[ ]:
@@ -84,13 +190,6 @@ quotes.head()
 # Promjena  = Pct.Change
 # Količina  = Volume
 # Prosječna = Average
-
-
-# In[10]:
-
-# Time window for the analysis (should be consistent with the provided data)
-date_start = dt.date(2016, 3, 1)
-date_end = dt.date(2017, 3, 24)
 
 
 # In[ ]:
@@ -109,7 +208,7 @@ date_end = dt.date(2017, 3, 24)
 #quotes_month = quotes.resample('M').mean()  # Monthly means
 
 
-# In[11]:
+# In[19]:
 
 # Simple Moving Averages
 #http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_averages
@@ -118,7 +217,7 @@ sma50 = quotes['Zadnja'].rolling(window=50).mean()
 sma200 = quotes['Zadnja'].rolling(window=200).mean()
 
 
-# In[12]:
+# In[20]:
 
 # Disparity index
 # The disparity index (or disparity ratio), compares, as a percentage, 
@@ -126,7 +225,7 @@ sma200 = quotes['Zadnja'].rolling(window=200).mean()
 disparity = ((sma20-quotes['Zadnja'])/sma20)*100.
 
 
-# In[13]:
+# In[21]:
 
 # Exponential Moving Averages
 ema20 = quotes['Zadnja'].ewm(span=20).mean()
@@ -134,7 +233,7 @@ ema50 = quotes['Zadnja'].ewm(span=50).mean()
 ema200 = quotes['Zadnja'].ewm(span=200).mean()
 
 
-# In[14]:
+# In[22]:
 
 # Bollinger bands
 #http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:bollinger_bands
@@ -144,14 +243,14 @@ lowr = ma20 - 2*sd20
 uppr = ma20 + 2*sd20
 
 
-# In[15]:
+# In[23]:
 
 # Bollinger BandWidth (20)
 bb_width = ((uppr - lowr)/ma20)*100.
 bb_width_ma200 = bb_width.rolling(window=200).mean()
 
 
-# In[16]:
+# In[24]:
 
 # MACD indicator - MACD(12,26,9)
 #http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:
@@ -163,7 +262,7 @@ signal_line = macd_line.ewm(span=9).mean()
 macd_hist = macd_line - signal_line
 
 
-# In[17]:
+# In[25]:
 
 # Percentage Price Oscillator - PPO(12,26,9)
 #http://stockcharts.com/school/doku.php?id=chart_school:
@@ -173,7 +272,7 @@ ppo_signal_line = ppo_line.ewm(span=9).mean()
 ppo_hist = ppo_line - ppo_signal_line
 
 
-# In[18]:
+# In[26]:
 
 # Percentage Volume Oscillator - PVO(12,26,9)
 # http://stockcharts.com/school/doku.php?id=chart_school:
@@ -185,7 +284,7 @@ pvo_signal_line = pvo_line.ewm(span=9).mean()
 pvo_hist = pvo_line - pvo_signal_line
 
 
-# In[19]:
+# In[27]:
 
 # Stochastic Oscillator (20,5,5)
 # http://stockcharts.com/school/doku.php?id=chart_school:
@@ -197,7 +296,7 @@ osc_line = osc_line.rolling(window=5).mean()  # SMA(5)
 osc_signal = osc_line.rolling(window=5).mean()  # SMA(5)
 
 
-# In[20]:
+# In[28]:
 
 # Relative strength index (RSI)
 # From: http://matplotlib.org/examples/pylab_examples/finance_work2.html
@@ -229,14 +328,14 @@ def relative_strength(prices, n=14):
     return rsi
 
 
-# In[21]:
+# In[29]:
 
 # Compute RSI (14 days)
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:relative_strength_index_rsi
 rsi = relative_strength(quotes['Zadnja'])
 
 
-# In[22]:
+# In[30]:
 
 # Candlesticks (data preparation)
 tindex = quotes.index.values
@@ -249,17 +348,22 @@ ohlc = quotes[['Prva', u'Najviša', u'Najniža', 'Zadnja']].values
 qdata = np.c_[mtime, ohlc]
 
 
-# In[23]:
+# In[31]:
+
+# Simple log returns
+returns = quotes['log_returns'].ix[date_start:date_end].dropna()
+
+
+# In[32]:
 
 # Daily VaR and CVaR from historical time window at 95% confidence
-returns = quotes['log_returns'].ix[date_start:date_end].dropna()
 VaR = stats.scoreatpercentile(returns.values, 5)
 ind = returns.values < VaR
 CVaR = np.mean(returns[ind])
 print('VaR = {:.2f} %, CVaR = {:.2f} %'.format(VaR, CVaR))
 
 
-# In[24]:
+# In[33]:
 
 # Mean and standard deviation of the simple log returns
 mu_logret = returns.mean()
@@ -268,7 +372,7 @@ print('Mean return: {:.2f} %'.format(mu_logret))
 print('St.dev. return: {:.2f}'.format(sd_logret))
 
 
-# In[25]:
+# In[34]:
 
 # Volume-by-Price indicator
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:volume_by_price
@@ -287,7 +391,7 @@ for i in range(len(zones)-1):
 vol_by_price = np.asarray(vol_by_price)*1e-6  # Milions (kn)
 
 
-# In[26]:
+# In[35]:
 
 # Ichimoku Cloud plot
 # http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:ichimoku_cloud
@@ -312,7 +416,7 @@ leading_span_B = ((high52 + low52)/2.).shift(26)
 lagging_span = quotes['Zadnja'].shift(-26)
 
 
-# In[27]:
+# In[36]:
 
 # Round number to the nearest base
 def myround(x, base=5):
@@ -321,19 +425,19 @@ def myround(x, base=5):
 
 # ## Plot Variant A
 
-# In[29]:
+# In[37]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=1, height_ratios=[1,3,1])
 axt = fig.add_subplot(gx[0])
 ax0 = fig.add_subplot(gx[1], sharex=axt)
 axr = ax0.twinx()
-axr.set_yticks([])  # do not show right y-axis
 ax1 = fig.add_subplot(gx[2], sharex=ax0)
 # Show y-axis tickmarks right
 axt.yaxis.tick_right()
 ax0.yaxis.tick_right()
 ax1.yaxis.tick_right()
+axr.yaxis.tick_left()
 # Top figure
 axt.set_title(stock_name)
 axt.plot(quotes.index, rsi, color='darkorange', label='Relative strength index - RSI (14)')
@@ -348,12 +452,17 @@ axt.set_ylim(0, 100)
 axt.set_yticks([30, 70])
 axt.legend(loc='lower left')
 # Middle figure
-# Volume (mountain plot)
+# Volume (mountain plot or bars plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
 if len(quotes[u'Količina'].ix[date_start:date_end]) > 250:
     axr.fill_between(quotes.index, quotes[u'Količina'], 0, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 else:
     axr.bar(quotes.index, quotes[u'Količina'], width=0.8, color='darkorange', alpha=0.8)
+    axr.tick_params(axis='y', colors='darkorange', labelsize=10)
+    axr.set_yticks([int(round(x)) for x in np.linspace(0, vmax, 6)])
+    axr.grid(True, which='major', color='darkorange', linestyle='--', lw=0.5)
 axr.set_ylim(0, 2*vmax)
 # EMA (20), EMA (50) and EMA (200)
 ax0.plot(quotes.index, ema20, ls='-', lw=1.5, c='magenta', label='EMA (20)')
@@ -365,7 +474,7 @@ ax0.plot(quotes.index, lowr, ls='-', lw=0.5, c='tan', label='')
 ax0.plot(quotes.index, uppr, ls='-', lw=0.5, c='tan', label='')
 # Candlestics
 if len(quotes['Zadnja'].ix[date_start:date_end]) > 250:
-    candle_width = 2
+    candle_width = 1
 else:
     candle_width = 0.8  # default
 candlestick_ohlc(ax0, qdata, width=candle_width)  # candlesticks
@@ -391,7 +500,10 @@ ax0.set_ylim(myround(ymin-diff), myround(ymax+diff))
 # Bottom figure
 ax1.plot(quotes.index, macd_line, ls='-', lw=1.5, c='royalblue', label='MACD line')
 ax1.plot(quotes.index, signal_line, ls='-', lw=1, c='seagreen', label='Signal line')
-ax1.bar(quotes.index, macd_hist, width=1, color='red')
+if len(macd_line.ix[date_start:date_end]) > 250:
+    ax1.bar(quotes.index, macd_hist, width=1, color='red')
+else:
+    ax1.bar(quotes.index, macd_hist, width=0.8, color='red')
 ymin_macd = min(macd_line.ix[date_start:date_end].min(),
                 signal_line.ix[date_start:date_end].min(),
                 macd_hist.ix[date_start:date_end].min())
@@ -411,14 +523,13 @@ plt.show()
 
 # ## Plot Variant B
 
-# In[32]:
+# In[38]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=2, height_ratios=[1,2,1], width_ratios=[5,1])
 axt = fig.add_subplot(gx[0,0])
 ax0 = fig.add_subplot(gx[1,0], sharex=axt)  # main 
 axr = ax0.twinx()
-axr.set_yticks([])  # do not show right y-axis
 ax1 = fig.add_subplot(gx[2,0], sharex=ax0)
 axq = fig.add_subplot(gx[0,1])
 axh = fig.add_subplot(gx[1,1])
@@ -440,12 +551,16 @@ axt.text(0.6, 0.1, '<20 = oversold', transform=axt.transAxes, fontsize=12)
 axt.set_yticks([20, 80])
 axt.legend(loc='lower left', frameon='fancy', fancybox=True, framealpha=0.5)
 # Middle figure left
-# Volume (mountain plot)
+# Volume (mountain plot or bars plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
 if len(quotes[u'Količina'].ix[date_start:date_end]) > 250:
     axr.fill_between(quotes.index, quotes[u'Količina'], 0, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 else:
     axr.bar(quotes.index, quotes[u'Količina'], width=0.8, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 axr.set_ylim(0, 2*vmax)
 # EMA (20), EMA (50) and EMA (200)
 ax0.plot(quotes.index, ema20, ls='-', lw=1.5, c='magenta', label='EMA (20)')
@@ -457,7 +572,7 @@ ax0.plot(quotes.index, lowr, ls='-', lw=0.5, c='tan', label='')
 ax0.plot(quotes.index, uppr, ls='-', lw=0.5, c='tan', label='')
 # Candlestics
 if len(quotes['Zadnja'].ix[date_start:date_end]) > 250:
-    candle_width = 2
+    candle_width = 1
 else:
     candle_width = 0.8  # default
 candlestick_ohlc(ax0, qdata, width=candle_width)  # candlesticks
@@ -483,7 +598,10 @@ ax0.set_ylim(myround(ymin-diff), myround(ymax+diff))
 # Percenage Volume Oscilator (PVO)
 ax1.plot(quotes.index, pvo_line, ls='-', lw=1.5, c='royalblue', label='PVO line')
 ax1.plot(quotes.index, pvo_signal_line, ls='-', lw=1, c='seagreen', label='Signal line')
-ax1.bar(quotes.index, pvo_hist, width=1, color='red')
+if len(pvo_line.ix[date_start:date_end]) > 250:
+    ax1.bar(quotes.index, pvo_hist, width=1, color='red')
+else:
+    ax1.bar(quotes.index, pvo_hist, width=0.8, color='red')
 ymin_pvo = min(pvo_line.ix[date_start:date_end].min(),
                pvo_signal_line.ix[date_start:date_end].min(),
                pvo_hist.ix[date_start:date_end].min())
@@ -528,7 +646,7 @@ plt.show()
 
 # ## Plot Variant C
 
-# In[35]:
+# In[39]:
 
 sns.set(context='notebook', style='whitegrid', font_scale=1.2)  # Change of style
 fig = plt.figure(figsize=(12,8.5))
@@ -552,6 +670,7 @@ ax1 = fig.add_subplot(gx[2], sharex=ax0)
 axt.yaxis.tick_right()
 ax0.yaxis.tick_right()
 ax1.yaxis.tick_right()
+axr.yaxis.tick_left()
 # Top figure
 axt.set_title(stock_name)
 axt.plot(quotes.index, rsi, ls='-', lw=2, color='darkorange', label='Relative strength index - RSI (14)')
@@ -586,15 +705,18 @@ axz.barh(zones[:-1], vol_by_price, height=bars_height, color='lightsteelblue', a
 axz.set_ylim(myround(ymin-diff), myround(ymax+diff))
 axz.set_xlim(0, 2*vol_by_price.max())  # adjust bars
 axz.grid(False)  # remove grid from this axis
-# Volume (mountain plot)
+# Volume (mountain plot or bars plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
 if len(quotes[u'Količina'].ix[date_start:date_end]) > 250:
     axr.fill_between(quotes.index, quotes[u'Količina'], 0, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 else:
     axr.bar(quotes.index, quotes[u'Količina'], width=0.8, color='darkorange', alpha=0.8)
+    axr.tick_params(axis='y', colors='darkorange', labelsize=10)
+    axr.set_yticks([int(round(x)) for x in np.linspace(0, vmax, 6)])
+    axr.grid(True, which='major', color='darkorange', linestyle='--', lw=0.5)
 axr.set_ylim(0, 2*vmax)
-axr.set_yticks([])
-axr.grid(False)
 # EMA (20), EMA (50) and EMA (200)
 ax0.plot(quotes.index, ema20, ls='-', lw=1.5, c='magenta', label='EMA (20)')
 ax0.plot(quotes.index, ema50, ls='-', lw=1.5, c='royalblue', label='EMA (50)')
@@ -605,7 +727,7 @@ ax0.plot(quotes.index, lowr, ls='-', lw=0.5, c='tan', label='')
 ax0.plot(quotes.index, uppr, ls='-', lw=0.5, c='tan', label='')
 # Candlestics
 if len(quotes['Zadnja'].ix[date_start:date_end]) > 250:
-    candle_width = 2
+    candle_width = 1
 else:
     candle_width = 0.8  # default
 candlestick_ohlc(ax0, qdata, width=candle_width)  # candlesticks
@@ -619,7 +741,10 @@ ax0.set_ylim(myround(ymin-diff), myround(ymax+diff))  # set limits on y-axis
 # Bottom figure
 ax1.plot(quotes.index, macd_line, ls='-', lw=1.5, c='royalblue', label='MACD line')
 ax1.plot(quotes.index, signal_line, ls='-', lw=1, c='seagreen', label='Signal line')
-ax1.bar(quotes.index, macd_hist, width=1, color='red')
+if len(macd_line.ix[date_start:date_end]) > 250:
+    ax1.bar(quotes.index, macd_hist, width=1, color='red')
+else:
+    ax1.bar(quotes.index, macd_hist, width=0.8, color='red')
 ymin_macd = min(macd_line.ix[date_start:date_end].min(),
                 signal_line.ix[date_start:date_end].min(),
                 macd_hist.ix[date_start:date_end].min())
@@ -639,7 +764,7 @@ plt.show()
 
 # ## Plot Variant D
 
-# In[36]:
+# In[40]:
 
 fig = plt.figure(figsize=(12,8.5))
 gx = gs.GridSpec(nrows=3, ncols=1, height_ratios=[1,3,1])
@@ -652,6 +777,7 @@ ax1 = fig.add_subplot(gx[2], sharex=axt)
 axt.yaxis.tick_right()
 ax0.yaxis.tick_right()
 ax1.yaxis.tick_right()
+axr.yaxis.tick_left()
 # Top figure
 axt.set_title(stock_name)
 # Bollinger band BB (20) BandWidth
@@ -667,12 +793,17 @@ diff_bb = (ymax_bb - ymin_bb)*0.2
 axt.set_ylim(int(ymin_bb-diff_bb), int(ymax_bb+diff_bb))
 axt.legend(loc='upper left', frameon='fancy', fancybox=True, framealpha=0.5)
 # Middle figure
-# Volume (mountain plot)
+# Volume (mountain plot or bars plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
 if len(quotes[u'Količina'].ix[date_start:date_end]) > 250:
     axr.fill_between(quotes.index, quotes[u'Količina'], 0, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 else:
     axr.bar(quotes.index, quotes[u'Količina'], width=0.8, color='darkorange', alpha=0.8)
+    axr.tick_params(axis='y', colors='darkorange', labelsize=10)
+    axr.set_yticks([int(round(x)) for x in np.linspace(0, vmax, 6)])
+    axr.grid(True, which='major', color='darkorange', linestyle='--', lw=0.5)
 axr.set_ylim(0, 2*vmax)
 # Ichimoku cloud
 ax0.plot([0], [0], ls='', label='Ichimoku cloud')  # empty line for legend label
@@ -689,7 +820,7 @@ ax0.plot(quotes.index, leading_span_A, ls='-', lw=1, c='seagreen', label='Leadin
 ax0.plot(quotes.index, leading_span_B, ls='-', lw=1, c='tomato', label='Leading span B (Senkou Span B)')
 # Candlestics
 if len(quotes['Zadnja'].ix[date_start:date_end]) > 250:
-    candle_width = 2
+    candle_width = 1
 else:
     candle_width = 0.8  # default
 candlestick_ohlc(ax0, qdata, width=candle_width)  # candlesticks
@@ -714,7 +845,10 @@ ax0.set_ylim(myround(ymin-diff), myround(ymax+diff))
 # Bottom figure (Percenage Price Oscilator)
 ax1.plot(quotes.index, ppo_line, ls='-', lw=1.5, c='royalblue', label='PPO line')
 ax1.plot(quotes.index, ppo_signal_line, ls='-', lw=1, c='seagreen', label='Signal line')
-ax1.bar(quotes.index, ppo_hist, width=1, color='red')
+if len(ppo_line.ix[date_start:date_end]) > 250:
+    ax1.bar(quotes.index, ppo_hist, width=1, color='red')
+else:
+    ax1.bar(quotes.index, ppo_hist, width=0.8, color='red')
 ymin_ppo = min(ppo_line.ix[date_start:date_end].min(),
                ppo_signal_line.ix[date_start:date_end].min(),
                ppo_hist.ix[date_start:date_end].min())
@@ -734,7 +868,7 @@ plt.show()
 
 # ## CROBEX Index
 
-# In[30]:
+# In[41]:
 
 # Povijesni podaci CROBEX indexa sa Zagrebačke burze (www.zse.hr)
 # Historical CROBEX index data from the Zagreb Stock Exchange (www.zse.hr)
@@ -742,19 +876,19 @@ crobex = pd.read_excel('zse_export_CROBEX.xlsx')
 crobex = crobex.set_index(pd.DatetimeIndex(crobex['Datum']))
 
 
-# In[31]:
+# In[42]:
 
-# Reverse order
 del crobex['Datum']
+# Reverse order
 crobex = crobex.ix[::-1]
 
 
-# In[32]:
+# In[43]:
 
-crobex.head()
+crobex.tail()
 
 
-# In[33]:
+# In[44]:
 
 del crobex['Promet dionica u sastavu indeksa']
 del quotes['log_returns']
@@ -769,14 +903,85 @@ del quotes['log_returns']
 #crobex.head(10)
 
 
-# In[34]:
+# In[45]:
+
+# Web scraping ZSE website for CROBEX index data
+# http://zse.hr/default.aspx?id=44101&index=CROBEX
+address = 'http://zse.hr/default.aspx?id=44101&index=CROBEX'
+page = urllib2.urlopen(address)
+soup = bs4.BeautifulSoup(page, 'lxml')
+
+
+# In[46]:
+
+# Extract table from web page
+table = soup.find_all('table', class_='dnevna_trgovanja sorttable')
+# There are two tables in the webpage, we need second one: table[1]
+# Extract all rows from the table
+rows = table[1].findAll('tr')
+data = []; sdata = []
+for row in rows[1:]:
+    # Extract cells from each row
+    cells = row.findAll('td')
+    for elem in cells:
+        # Extract text strings from cells
+        data.append(elem.find(text=True))
+clean_data = []
+for s in data:
+    # Remove non-printing characters from strings
+    clean_data.append(re.sub('[^\040-\176]', '', s))
+
+
+# In[47]:
+
+datum = []
+prva = []
+najvisa = []
+najniza = []
+zadnja = []
+promjena = []
+promet = []
+for i in range(0, len(clean_data), 7):
+    datum.append(clean_data[i])
+    prva.append(replace_convert(clean_data[i+1]))
+    najvisa.append(replace_convert(clean_data[i+2]))
+    najniza.append(replace_convert(clean_data[i+3]))
+    zadnja.append(replace_convert(clean_data[i+4]))
+    promjena.append(replace_convert(clean_data[i+5]))
+    promet.append(replace_convert(clean_data[i+6]))
+
+
+# In[48]:
+
+column_names = ['Prva', 'Zadnja', u'Najviša', u'Najniža', 'Promjena', 'Promet']
+podaci = pd.DataFrame(data={'Prva':prva, u'Najviša':najvisa, u'Najniža':najniza,
+                            'Zadnja':zadnja, 'Promjena':promjena, 'Promet':promet},
+                      index=pd.to_datetime(datum, dayfirst=True), columns=column_names)
+
+
+# In[49]:
+
+del podaci['Promet']
+# Reverse order
+podaci = podaci.iloc[::-1]
+
+
+# In[50]:
+
+# Adding new rows to the existing DataFrame
+data_all = pd.concat([crobex, podaci])
+# Remove duplicate dates
+data_all = data_all.drop_duplicates(keep='last').copy()
+
+
+# In[51]:
 
 # Join the stock data with CROBEX index data to form a new dataframe
-df = crobex.join(quotes, lsuffix='_c').ffill()
-df.head()
+df = data_all.join(quotes, lsuffix='_c').ffill()
+df.tail()
 
 
-# In[35]:
+# In[52]:
 
 # Simple returns
 simreturns = df['Zadnja'].ix[date_start:date_end].pct_change()
@@ -784,14 +989,14 @@ simreturns = df['Zadnja'].ix[date_start:date_end].pct_change()
 cumsimrets = ((1 + simreturns).cumprod() - 1)*100.
 
 
-# In[36]:
+# In[53]:
 
 # CROBEX returns
 crobex_simreturns = df['Zadnja_c'].ix[date_start:date_end].pct_change()
 crobex_cumsimrets = ((1 + crobex_simreturns).cumprod() - 1)*100.
 
 
-# In[37]:
+# In[54]:
 
 # CROBEX Index SMA (20)
 crobex_sma20 = crobex_cumsimrets.rolling(window=20).mean()
@@ -799,7 +1004,7 @@ crobex_sma20 = crobex_cumsimrets.rolling(window=20).mean()
 cumsimrets_sma20 = cumsimrets.rolling(window=20).mean()
 
 
-# In[38]:
+# In[55]:
 
 # Correlation coefficient
 # http://www.stockcharts.com/school/doku.php?id=chart_school:
@@ -809,7 +1014,7 @@ corr_coef = df['Zadnja_c'].rolling(window=20).corr(df['Zadnja'])
 corr_coef_sma50 = corr_coef.rolling(window=50).mean()
 
 
-# In[39]:
+# In[56]:
 
 # Bollinger bands on Cumulative Simple returns
 cumsimrets_sda20 = cumsimrets.rolling(window=20).std()
@@ -821,7 +1026,7 @@ crobex_lowr = crobex_sma20 - 2.*crobex_sda20
 crobex_uppr = crobex_sma20 + 2.*crobex_sda20
 
 
-# In[41]:
+# In[57]:
 
 sns.set(context='notebook', style='darkgrid', font_scale=1.2)  # Change of style
 fig = plt.figure(figsize=(12,8.5))
@@ -835,6 +1040,7 @@ ax2 = fig.add_subplot(gx[2], sharex=axt)
 axt.yaxis.tick_right()
 ax1.yaxis.tick_right()
 ax2.yaxis.tick_right()
+axr.yaxis.tick_left()
 # Top figure
 axt.set_title(stock_name)
 # Cumulative Simple Returns
@@ -860,13 +1066,17 @@ s = '{:s}: O:{:g}, H:{:g}, L:{:g}, C:{:g}, Chg:{:g}%'.format(str(last.name)[:10]
 axt.text(0.25, 0.9, s, transform=axt.transAxes, fontsize=12, fontweight='bold')
 #axt.xaxis.set_major_formatter(DateFormatter('%b %Y'))  # Month names format
 axt.set_xlim(date_start, date_end)  # Clipping view
-# Volume (mountain plot)
+# Volume (mountain plot or bars plot)
 vmax = quotes[u'Količina'].ix[date_start:date_end].max()
 if len(quotes[u'Količina'].ix[date_start:date_end]) > 250:
     axr.fill_between(quotes.index, quotes[u'Količina'], 0, color='darkorange', alpha=0.8)
+    axr.set_yticks([])
+    axr.grid(False)
 else:
     axr.bar(quotes.index, quotes[u'Količina'], width=0.8, color='darkorange', alpha=0.8)
-axr.plot(quotes.index, quotes[u'Količina'], c='darkorange', ls='-', lw=0.5, label='')
+    axr.tick_params(axis='y', colors='darkorange', labelsize=10)
+    axr.set_yticks([int(round(x)) for x in np.linspace(0, vmax, 6)])
+    axr.grid(True, which='major', color='darkorange', linestyle='--', lw=0.5)
 axr.set_ylim(0, 2*vmax)
 # Correlation plot
 ax1.plot(corr_coef.index, corr_coef, color='steelblue', ls='-', lw=1.5, label='Corr (20)')
@@ -878,7 +1088,10 @@ ax1.set_ylim(-1, 1)
 # Bottom figure (Percenage Price Oscilator)
 ax2.plot(quotes.index, ppo_line, ls='-', lw=1.5, c='royalblue', label='PPO line')
 ax2.plot(quotes.index, ppo_signal_line, ls='-', lw=1, c='seagreen', label='Signal line')
-ax2.bar(quotes.index, ppo_hist, width=1, color='red')
+if len(macd_line.ix[date_start:date_end]) > 250:
+    ax2.bar(quotes.index, macd_hist, width=1, color='red')
+else:
+    ax2.bar(quotes.index, macd_hist, width=0.8, color='red')
 ymin_ppo = min(ppo_line.ix[date_start:date_end].min(),
                ppo_signal_line.ix[date_start:date_end].min(),
                ppo_hist.ix[date_start:date_end].min())
